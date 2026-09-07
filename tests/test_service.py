@@ -1247,3 +1247,142 @@ class TestPayloadRoundTrip:
         rebuilt = search_result_from_dict(data)
 
         assert rebuilt.engines == {"brave"}
+
+
+async def test_identical_misses_share_dispatch_but_not_views() -> None:
+    engine = _OkEngine(count=5, delay=0.03)
+    service = _service(engines={"okeng": engine})
+    responses = await asyncio.gather(
+        *[
+            service.search(
+                _req(max_results=1 if i == 0 else 5, include={"results"} if i == 0 else {"results", "engine_status"})
+            )
+            for i in range(20)
+        ]
+    )
+    assert engine.calls == 1
+    assert len(responses[0].results) == 1
+    assert not responses[0].engine_outcomes
+    assert all(len(r.results) == 5 and r.engine_outcomes for r in responses[1:])
+    assert len({r.query_id for r in responses}) == 20
+    responses[1].results[0].title = "mutated"
+    assert responses[2].results[0].title != "mutated"
+    assert not service._inflight
+
+
+async def test_cancel_one_waiter_preserves_other_search() -> None:
+    engine = _OkEngine(delay=0.05)
+    service = _service(engines={"okeng": engine})
+    first = asyncio.create_task(service.search(_req()))
+    second = asyncio.create_task(service.search(_req()))
+    await asyncio.sleep(0.01)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert (await second).results
+    assert engine.calls == 1
+    assert not service._inflight
+
+
+async def test_cancel_last_waiter_cleans_dispatch() -> None:
+    engine = _OkEngine(delay=10)
+    service = _service(engines={"okeng": engine})
+    task = asyncio.create_task(service.search(_req()))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not service._inflight
+    assert not service._waiters
+
+
+async def test_prefer_fresh_does_not_join_existing_flight() -> None:
+    engine = _OkEngine(delay=0.03)
+    service = _service(engines={"okeng": engine})
+    await asyncio.gather(service.search(_req()), service.search(_req(freshness="prefer_fresh")))
+    assert engine.calls == 2
+
+
+async def test_services_share_runtime_flights() -> None:
+    engine = _OkEngine(delay=0.03)
+    ctx = _context(engines={"okeng": engine})
+    await asyncio.gather(SearchService(ctx).search(_req()), SearchService(ctx).search(_req()))
+    assert engine.calls == 1
+
+
+async def test_coalesced_callers_each_acquire_rate_limit() -> None:
+    from unittest.mock import AsyncMock
+
+    engine = _OkEngine(delay=0.03)
+    limiter = _DenyRateLimiter(deny=False)
+    limiter.acquire = AsyncMock(side_effect=[True, False])
+    service = _service(engines={"okeng": engine}, rate_window=limiter)
+    results = await asyncio.gather(
+        service.search(_req(client_identifier="allowed")),
+        service.search(_req(client_identifier="denied")),
+        return_exceptions=True,
+    )
+    assert isinstance(results[0], SearchResponse)
+    assert isinstance(results[1], RateLimitExceededError)
+    assert limiter.acquire.await_count == 2
+    assert engine.calls == 1
+
+
+async def test_prefer_fresh_can_reconnect_cache_on_write() -> None:
+    from unittest.mock import AsyncMock
+
+    engine = _OkEngine()
+    cache = _FakeCache()
+    cache.is_connected = False
+    cache.set = AsyncMock()
+    service = _service(engines={"okeng": engine}, cache=cache)
+    response = await service.search(_req(freshness="prefer_fresh"))
+    assert response.results
+    cache.set.assert_awaited_once()
+
+
+async def test_coalesced_nested_answer_and_infobox_views_are_independent() -> None:
+    class RichEngine(_OkEngine):
+        async def search(self, query: str, params: dict[str, Any] | None = None) -> AdapterResponse:
+            result = await super().search(query, params)
+            result.answers = [{"nested": {"value": "original"}}]
+            result.infoboxes = [{"urls": [{"title": "original"}]}]
+            return result
+
+    engine = RichEngine(delay=0.03)
+    cache = _FakeCache()
+    service = _service(engines={"okeng": engine}, cache=cache)
+    first, second = await asyncio.gather(service.search(_req()), service.search(_req()))
+    first.answers[0]["nested"]["value"] = "mutated"
+    first.infoboxes[0]["urls"][0]["title"] = "mutated"
+    assert second.answers[0]["nested"]["value"] == "original"
+    assert second.infoboxes[0]["urls"][0]["title"] == "original"
+    cached = await service.search(_req())
+    assert cached.answers[0]["nested"]["value"] == "original"
+    assert cached.infoboxes[0]["urls"][0]["title"] == "original"
+    cached.answers[0]["nested"]["value"] = "cached mutation"
+    assert (await service.search(_req())).answers[0]["nested"]["value"] == "original"
+    assert engine.calls == 1
+
+
+async def test_deep_and_cyclic_answer_values_are_bounded() -> None:
+    import json
+
+    nested: dict[str, Any] = {}
+    for _ in range(2000):
+        nested = {"child": nested}
+    cyclic: dict[str, Any] = {}
+    cyclic["self"] = cyclic
+
+    class RichEngine(_OkEngine):
+        async def search(self, query: str, params: dict[str, Any] | None = None) -> AdapterResponse:
+            result = await super().search(query, params)
+            result.answers = [nested]
+            result.infoboxes = [cyclic]
+            return result
+
+    service = _service(engines={"okeng": RichEngine(delay=0.03)}, cache=_FakeCache())
+    responses = await asyncio.gather(service.search(_req()), service.search(_req()))
+    for response in responses:
+        assert "<max depth exceeded>" in json.dumps(response.answers)
+        assert response.infoboxes == [{"self": "<circular reference>"}]
