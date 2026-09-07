@@ -109,6 +109,8 @@ layers = [
     "slopsearx.server",
     "slopsearx.mcp",
     "slopsearx.research",
+    "slopsearx.research_store",
+    "slopsearx.research_models",
     "slopsearx.snapshot",
     "slopsearx.service",
     "slopsearx.routing",
@@ -127,4 +129,18 @@ layers = [
 ]
 ignore_imports = [
     "slopsearx.adapter -> slopsearx.proxypool",
+]
+
+[[tool.importlinter.contracts]]
+id = "mcp-result-projections"
+name = "MCP result projections cannot depend on handlers or runtime state"
+type = "forbidden"
+source_modules = [
+    "slopsearx.mcp.result_serialization",
+    "slopsearx.mcp.retrieval_url",
+]
+forbidden_modules = [
+    "slopsearx.mcp.tools",
+    "slopsearx.mcp.state",
+    "slopsearx.mcp.server",
 ]
