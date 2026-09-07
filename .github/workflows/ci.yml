@@ -73,7 +73,7 @@ jobs:
         run: lint-imports
 
       - name: Unused dependency check with deptry
-        run: deptry . --per-rule-ignores "DEP002=lxml|uvicorn|pytest|pytest-asyncio|ruff|cssselect|mypy|pytest-cov|pip-tools|pre-commit|radon|vulture|import-linter|deptry|pip-audit|fastmcp,DEP003=starlette"
+        run: deptry . --per-rule-ignores "DEP002=lxml|uvicorn|pytest|pytest-asyncio|ruff|cssselect|mypy|pytest-cov|pip-tools|pre-commit|radon|vulture|import-linter|deptry|pip-audit|fastmcp|prometheus-client,DEP003=starlette"
 
   valkey-integration:
     runs-on: ubuntu-latest
@@ -128,3 +128,12 @@ jobs:
         with:
           name: coverage-report-${{ matrix.python-version }}
           path: htmlcov/
+
+  monitoring-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate Prometheus rules and firing behavior
+        run: |
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/alerting:/rules:ro" prom/prometheus:v3.2.1 check rules /rules/rules.yml
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/alerting:/rules:ro" prom/prometheus:v3.2.1 test rules /rules/rules.test.yml
