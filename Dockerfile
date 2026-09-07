@@ -1,7 +1,7 @@
 # SlopSearX production image
-# Target: ~200MB, cold start <2s, Python 3.12
+# Target: ~200MB, cold start <2s, Python 3.14
 # Dependabot maintains this versioned Docker Official Image tag and digest.
-FROM python:3.12.11-slim-trixie@sha256:47ae396f09c1303b8653019811a8498470603d7ffefc29cb07c88f1f8cb3d19f
+FROM python:3.14.7-slim-trixie@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 LABEL org.opencontainers.image.title="SlopSearX"
 LABEL org.opencontainers.image.description="Cloud-native, stateless, AI-agent-first meta search engine"
@@ -17,6 +17,12 @@ RUN apt-get update \
 # Python deps
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
+
+# The Python 3.14 image ships vulnerable versions of transitive Python
+# packages. Refresh them to versions with the fixes reported by Trivy.
+RUN python -m pip install --no-cache-dir --upgrade \
+    "setuptools>=78.1.1" \
+    "msgpack>=1.2.1"
 
 # Apply base-image security updates after dependency installation so the
 # per-build refresh does not invalidate the expensive pip layer.
