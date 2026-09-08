@@ -282,9 +282,9 @@ class TestCatalogFeatureMatrix:
                 assert cap.enforced_filters["time_range"] == "local"
                 assert cap.enforced_filters["date_from"] == "upstream"
                 assert cap.enforced_filters["date_to"] == "upstream"
-            elif cap.name == "exa":
-                # Consumption without any enforcement claim: the adapter
-                # forwards publication-date bounds upstream but declares no
+            elif cap.name in {"exa", "tavily"}:
+                # Consumption without any enforcement claim: both adapters
+                # forward publication-date bounds upstream but declare no
                 # enforcement layer until it has been audited live. This is
                 # the case the docstring describes — a declaration that must
                 # never be read as an enforcement claim.

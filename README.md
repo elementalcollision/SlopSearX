@@ -35,9 +35,9 @@ SlopSearX is a horizontally scalable, stateless meta search engine designed for 
 | `GET /metrics` | OpenMetrics for Prometheus scraping |
 | `GET /config` | Categories→engines mapping for runtime discovery |
 
-## Engines (52)
+## Engines (53)
 
-The table below is maintained to match the live adapter registry (52 registered
+The table below is maintained to match the live adapter registry (53 registered
 adapters as of this writing). The MCP server's `slopsearx_list_capabilities`
 tool and the `slopsearx://capabilities` resource are generated from that same
 registry at runtime — treat them as authoritative.
@@ -52,6 +52,7 @@ registry at runtime — treat them as authoritative.
 | [Google](https://google.com/) | Scrape | None | general, news |
 | [Hacker News](https://news.ycombinator.com/) | API | None | general, news |
 | [Reddit](https://reddit.com/) | API | None | general, social, reddit:subreddit |
+| [Tavily](https://tavily.com/) | API | `ENGINE_TAVILY_API_KEY` | general, news |
 | [Wikipedia](https://www.wikipedia.org/) | API | None | general, science, reference |
 
 ### Developer / Package Registries
